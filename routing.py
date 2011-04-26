@@ -47,7 +47,7 @@ class SmsRouter(object):
             Attach callbacks to incoming and outgoing message queues
         """
   
-        self.message_processors = [import_class(mp) for mp in settings.MESSAGE_PROCESSORS]
+        self.message_processors = [import_class(mp)() for mp in settings.MESSAGE_PROCESSORS]
 
         # attach callbacks for incoming messages
         self.incoming_messages_consumer = Consumer(self.connection.channel(), 
@@ -104,7 +104,11 @@ class SmsRouter(object):
         except socket.error, e:
             print("Socket error: %s" % e)
         
-        self.connection.release()
+        try:
+            self.connection.release()
+        except AssertionError:
+            # todo: find why there is this assertion error about state
+            pass
 
 
     def stop():
@@ -124,7 +128,7 @@ class SmsRouter(object):
             message.
         """
 
-        self.publisher.publish(body=message.to_dict(), 
+        self.producer.publish(body=message.to_dict(), 
                                routing_key="incoming_messages")    
 
 
@@ -135,7 +139,7 @@ class SmsRouter(object):
             message.
         """
 
-        self.publisher.publish(body=message.to_dict(), 
+        self.producer.publish(body=message.to_dict(), 
                                routing_key="outgoing_messages")    
 
 
@@ -157,10 +161,10 @@ class SmsRouter(object):
         routes['queues'] = {}
         routes['queues']['incoming_messages'] = Queue('incoming_messages',
                                                     exchange=routes['exchange'],
-                                                    key="incoming_messages")
+                                                    routing_key="incoming_messages")
         routes['queues']['outgoing_messages'] = Queue('outgoing_messages',
                                                     exchange=routes['exchange'],
-                                                     key="outgoing_messages")
+                                                     routing_key="outgoing_messages")
 
         return routes
             

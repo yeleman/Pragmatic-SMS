@@ -87,5 +87,6 @@ class TestSettings(unittest2.TestCase):
         self.assertTrue(test.IS_TEST_SETTINGS)
 
 
+
 if __name__ == '__main__':
     unittest2.main()
