@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 # vim: ai ts=4 sts=4 et sw=4
 
+
+IS_TEST_SETTINGS = True
+
+
 # if False, message will be deleted when the router shut down or crash
 # if true, they will be saved when queued and retrieved on router starts up
 PERSISTENT_MESSAGE_QUEUES = True
@@ -23,4 +27,6 @@ MESSAGE_BROKER = {'transport': 'memory',
 
 
 # list of object that will react when a message is received or going to be send
-MESSAGE_PROCESSORS = ()
+MESSAGE_PROCESSORS = (
+    'pragmatic_sms.processors.test.EchoMessageProcessor',
+)

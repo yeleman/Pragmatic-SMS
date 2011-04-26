@@ -3,14 +3,21 @@
 # vim: ai ts=4 sts=4 et sw=4
 
 """
-    Provide the tools you need to create a message processor
+    Provide the tools you need to create a message processor and react to
+    incoming and outgoing messages.
 """
+
+import socket
+
+from routing import SmsRouter, IncomingMessage, OutgoingMessage
+from conf import settings
+
 
 
 class MessageProcessor(object):
     """
-        Extend this class when you want your program to react when and SMS is 
-        and received.
+        Extend this class when you want your program to react when a SMS is 
+        sent or received.
 
         Typical usage is:
 
@@ -18,10 +25,10 @@ class MessageProcessor(object):
 
             YourMessageProcessor(MessageProcessor):
 
-                def outgoing_message(self, message):
+                def on_send_message(self, message):
                     # do something with a message ready to be sent
 
-                def incomming message(self, message):
+                def on_receive_message(self, message):
                     # do something with a message just arriving
 
         Then in your settings file:
@@ -34,85 +41,83 @@ class MessageProcessor(object):
         automatically.
     """
 
-    def incomming_message(self, message):
+
+    # todo: implement on return so we can handle message you can't deliver
+    # http://packages.python.org/kombu/reference/kombu.messaging.html?k#message-producer
+
+    def handle_incoming_message(self, body, message):
+        """
+            Callback called when a new message available on the incomming message
+            queue. It unpacks the JSON message, turn it into an IncomingMessage
+            instance an pass it to 'on_receive_message'.
+
+            This method is used for internal purpose and you should
+            not override it unless you know what you are doing.
+
+            To react on the reception of messages, override 'on_receive_message'.
+        """
+        # todo: try / except message reception and log error
+        if self.on_receive_message(IncommingMessage(**body)):
+            message.ack()
+
+
+    def handle_outgoing_message(self, body, message):
+        """
+            Callback called when a message ready to be sent. 
+            It unpacks the JSON message, turn it into an OutgoingMessage
+            instance an pass it to 'on_send_message'.
+
+            This method is used for internal purpose and you should
+            not override it unless you know what you are doing.
+
+            To react on the reception of messages, override 'on_send_message'.
+        """
+        # todo: try / except message reception and log error
+        if self.on_send_message(IncommingMessage(**body)):
+            message.ack()
+
+
+    def on_receive_message(self, message):
         """
             Override this method to react to any message that is just arriving.
+
+            Return True if you handled the message and don't want other handlers
+            to receive it.
+
+            If you don't override it, it will silently do nothin, which allow
+            you to create MessageProcessors that only cares about either
+            OutoingMessage or IncomingMessage and not both.
         """
-        raise NotImplemented
+        pass
 
 
-    def outgoing_message(self, message):
+    def on_send_message(self, message):
         """
             Override this method to react to any message that is going to 
             be sent.
+
+            Return True if you handled the message and don't want other handlers
+            to receive it.
+
+            If you don't override it, it will silently do nothin, which allow
+            you to create MessageProcessors that only cares about either
+            OutoingMessage or IncomingMessage and not both.
         """
-        raise NotImplemented
+        pass
 
 
-    def send_message(self, message):
+    # todo: add the 'origin' of the message as the piece of code that produced 
+    # the message
+
+    # todo: make a with Message.recipient / backend context manager to send 
+    # several message to the same recipient / backend in a raw
+    def send(recipient, text, backend="default"):
         """
-            Stack a message in the sending queue. 'message' should be a message
-            object.
+            Create a Message object with the following attributes and send it.
+
+            Return the Message object
         """
+        message = OutgoingMessage(recipient, text, backend=backend)
+        message.send()
+        return message
 
-
-    def send(to, text, backend="default"):
-        """
-            Create a Message object with the following attributes and pass it
-            to send_message()
-        """
-
-    def add_incoming_message(self, message, backend='default'):
-        """
-            Add a message to the incomming queue
-        """
-        queue_name = '%s-incoming-message' % backend
-        self.producer.publish(message, routing_key=queue_name)
-
-
-    def add_outgoing_message(self, message, backend='default'):
-        """
-            Add a message to the incomming queue
-        """
-        queue_name = '%s-outgoing-message' % backend
-        self.producer.publish(message, routing_key=queue_name)
-
-    
-
-  # set exchanges, consumers and producers
-        backends = dict(self.backends)
-        self.backends = {}
-    
-        self.exchange = Exchange("sms-exchange", "direct", durable=self.durable)
-        
-        self.message_broker = BrokerConnection(**self.message_broker)
-
-        self.channel = self.message_broker.channel()
-        self.poducer = Producer(self.channel, exchange=self.exchange)
-        self.consumer = Consumer(self.channel, )
-
-        # set on queue for each backend
-        self.queues = {'incoming_messages': {}, 'outgoing_messages': {}}        
-        for name, params in backends.iteritems():
-            
-            cls = params.pop(name)
-            self.backends[name] = cls(**params) 
-            
-            queue_name = '%s-incoming-message' % name
-            incoming_messages_queue = Queue(queue_name, 
-                                            exchange=self.exchange, 
-                                            key=queue_name)
-            self.queues['incoming_messages'][name] = queue
-
-            queue_name = '%s-outgoing-message' % name
-            outgoing_messages_queue = Queue(queue_name, 
-                                            exchange=self.exchange, 
-                                            key=queue_name)
-            self.queues['incoming_messages'][name] = queue
-
-        # attach all the callbacks that need to receive the messages
-        for message_processor in self.message_processors:
-            processor = __import__(message_processor)
-            self.consumer.register_callback(processor)
-        
-        self.consumer.consume()
