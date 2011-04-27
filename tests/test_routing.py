@@ -36,18 +36,22 @@ class TestRouting(unittest2.TestCase):
         os.environ['PRAGMATIC_SMS_SETTINGS_MODULE'] = 'dummy_settings'
         settings._inst = None
         SettingManager(renew=True)
-        self.message_received = False
+        self.message_received = 0
+        self.message_sent = 0
 
-        class AddIncomingMessageTestMessageProcessor(MessageProcessor):
+        class CounterMessageProcessor(MessageProcessor):
              
              ref = self
 
              def on_receive_message(self, message):
                 if isinstance(message, IncomingMessage):
-                    self.ref.message_received = True
+                    self.ref.message_received += 1
 
+             def on_send_message(self, message):
+                if isinstance(message, OutgoingMessage):
+                    self.ref.message_sent += 1
 
-        processors.base.AddIncomingMessageTestMessageProcessor = AddIncomingMessageTestMessageProcessor
+        processors.base.CounterMessageProcessor = CounterMessageProcessor
 
 
     def test_import_class(self):
@@ -72,42 +76,95 @@ class TestRouting(unittest2.TestCase):
 
     def test_handle_incoming_message(self):
 
-        settings.MESSAGE_PROCESSORS = ('processors.base.AddIncomingMessageTestMessageProcessor',)
+        settings.MESSAGE_PROCESSORS = ('processors.base.CounterMessageProcessor',)
         router = SmsRouter()
         router.setup_consumers()
-        mp = processors.base.AddIncomingMessageTestMessageProcessor()
-
-
         router.producer.publish(body={'author': 'foo', 'text': 'bar'}, 
                                routing_key="incoming_messages")
         router.start(timeout=1, limit=1)
-    # def test_add_incoming_message(self):
-
-    #     class AddIncomingMessageTestMessageProcessor(MessageProcessor):
-             
-    #          ref = self
-
-    #          def on_receive_message(self, message):
-    #             if isinstance(message, IncomingMessage):
-    #                 self.message_received = True
-    #                 return True
-
-    #     processors.base.AddIncomingMessageTestMessageProcessor = AddIncomingMessageTestMessageProcessor
-
-
-    #     settings.MESSAGE_PROCESSORS = ('processors.base.AddIncomingMessageTestMessageProcessor',)
-    #     router = SmsRouter()
-    #     router.setup_consumers()
-    #     mp = AddIncomingMessageTestMessageProcessor()
-    #     router.incoming_messages_consumer.register_callback(mp.handle_incoming_message)
-    #     router.incoming_messages_consumer.consume()
-
-    #     router.add_incoming_message(IncomingMessage('foo', 'bar'))
-
-    #     router.start(timeout=1, limit=1)
-
         self.assertTrue(self.message_received)
 
+
+    def test_dispatch_incoming_message(self):
+
+        settings.MESSAGE_PROCESSORS = ('processors.base.CounterMessageProcessor',)
+        router = SmsRouter()
+        router.setup_consumers()
+        router.dispatch_incoming_message(IncomingMessage('foo', 'bar'))
+        router.start(timeout=1, limit=1)
+        self.assertTrue(self.message_received)
+
+
+    def test_handle_outgoing_message(self):
+
+        settings.MESSAGE_PROCESSORS = ('processors.base.CounterMessageProcessor',)
+        router = SmsRouter()
+        router.setup_consumers()
+        router.producer.publish(body={'recipient': 'foo', 'text': 'bar'}, 
+                               routing_key="outgoing_messages")
+        router.start(timeout=1, limit=1)
+        self.assertTrue(self.message_sent)
+
+
+    def test_dispatch_outgoing_message(self):
+
+        settings.MESSAGE_PROCESSORS = ('processors.base.CounterMessageProcessor',)
+        router = SmsRouter()
+        router.setup_consumers()
+        router.dispatch_outgoing_message(OutgoingMessage('foo', 'bar'))
+        router.start(timeout=1, limit=1)
+        self.assertTrue(self.message_sent)
+
+
+    def test_several_message_processors(self):
+
+        settings.MESSAGE_PROCESSORS = ('processors.base.CounterMessageProcessor',
+                                       'processors.base.CounterMessageProcessor')
+        router = SmsRouter()
+        router.setup_consumers()
+        router.dispatch_outgoing_message(OutgoingMessage('foo', 'bar'))
+        router.dispatch_incoming_message(IncomingMessage('foo', 'bar'))
+        router.start(timeout=1, limit=1)
+        self.assertEqual(self.message_sent, 2)
+        self.assertEqual(self.message_received, 2)
+
+
+    def test_message_send_method(self):
+
+        settings.MESSAGE_PROCESSORS = ('processors.base.CounterMessageProcessor',)
+        message = OutgoingMessage('foo', 'bar')
+        message.send()
+        router = SmsRouter()
+        router.setup_consumers()
+        router.start(timeout=1, limit=1)
+        self.assertEqual(self.message_sent, 1)
+
+
+    def test_message_dispatch_method(self):
+
+        settings.MESSAGE_PROCESSORS = ('processors.base.CounterMessageProcessor',)
+        message = IncomingMessage('foo', 'bar')
+        message.dispatch()
+        router = SmsRouter()
+        router.setup_consumers()
+        router.start(timeout=1, limit=1)
+        self.assertEqual(self.message_received, 1)
+
+
+    def test_message_respond_method(self):
+
+        settings.MESSAGE_PROCESSORS = ('processors.base.CounterMessageProcessor',)
+        message = IncomingMessage('foo', 'bar')
+        response = message.respond('doh')
+        router = SmsRouter()
+        router.setup_consumers()
+        router.start(timeout=1, limit=1)
+        self.assertEqual(self.message_sent, 1)
+        self.assertTrue(isinstance(response, OutgoingMessage))
+        self.assertEqual(response.text, 'doh')
+        self.assertEqual(response.recipient, message.author)
+        self.assertEqual(response.backend, message.backend)
+        self.assertEqual(response.response_to, message)
 
 
 

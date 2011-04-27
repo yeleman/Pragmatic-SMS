@@ -121,7 +121,7 @@ class SmsRouter(object):
         self.run = False
 
     
-    def add_incoming_message(self, message):
+    def dispatch_incoming_message(self, message):
         """
             Add an incoming message in the queue. Transport backend use this
             method notify all the message processor that they received a new
@@ -132,7 +132,7 @@ class SmsRouter(object):
                                routing_key="incoming_messages")    
 
 
-    def add_outgoing_message(self, message):
+    def dispatch_outgoing_message(self, message):
         """
             Add an outgoing message in the queue. Application use
             this notify the proper backend that they sent a new
@@ -230,8 +230,16 @@ class OutgoingMessage(Message):
                  id=None, response_to=None):
         Message.__init__(self, text, backend, id)
 
+        # accept None, and IncomingMessage object or a
+        # serialized IncomingMessage object as parameter
         self.recipient = recipient
-        self.response_to = response_to
+        if response_to:
+            try:
+                self.response_to = IncomingMessage(**response_to)
+            except TypeError:
+                self.response_to = response_to
+        else:
+            self.response_to = response_to
 
         # accept a string as a date or a date object
         if creation_date:
@@ -247,9 +255,10 @@ class OutgoingMessage(Message):
         """
             Turn this object into a dict that is easy to serialize into JSON
         """
+        response_to = self.response_to.to_dict() if self.response_to else self.response_to
         return {'recipient': self.recipient, 'text': self.text, 
                 'backend': self.backend, 'id': self.id, 
-                'response_to': self.response_to,
+                'response_to': response_to,
                 'creation_date': self.serialize_date(self.creation_date)}
 
 
@@ -257,7 +266,7 @@ class OutgoingMessage(Message):
         """
             Stack the message in the outgoing message queue.
         """
-        raise NotImplemented
+        self.router.dispatch_outgoing_message(self)
 
     
     def __unicode__(self):
@@ -308,7 +317,7 @@ class IncomingMessage(Message):
         """
         return OutgoingMessage(recipient=self.author,
                                text=text, backend=self.backend, 
-                               response_to=self.id)
+                               response_to=self)
 
 
     def respond(self, text):
@@ -321,6 +330,13 @@ class IncomingMessage(Message):
         return message
 
 
+    def dispatch(self):
+        """
+            Stack the message in the incoming message queue.
+        """
+        self.router.dispatch_incoming_message(self)
+
+
     def __unicode__(self):
         return u"From %(author)s: %(text)s" % self.__dict__
     
@@ -329,6 +345,3 @@ class IncomingMessage(Message):
         return u"<IncomingMessage %(id)s via %(backend)s>" % self.__dict__
 
 
-
-
-    

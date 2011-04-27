@@ -73,7 +73,7 @@ class MessageProcessor(object):
             To react on the reception of messages, override 'on_send_message'.
         """
         # todo: try / except message reception and log error
-        if self.on_send_message(IncommingMessage(**body)):
+        if self.on_send_message(OutgoingMessage(**body)):
             message.ack()
 
 
