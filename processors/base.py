@@ -9,8 +9,8 @@
 
 import socket
 
-from routing import SmsRouter, IncomingMessage, OutgoingMessage
-from conf import settings
+from pragmatic_sms.routing import SmsRouter, IncomingMessage, OutgoingMessage
+from pragmatic_sms.conf import settings
 
 
 
@@ -40,6 +40,9 @@ class MessageProcessor(object):
         When you'll restart the router, your method will be called 
         automatically.
     """
+
+    def __init__(self, router):
+        self.router = router
 
 
     # todo: implement on return so we can handle message you can't deliver

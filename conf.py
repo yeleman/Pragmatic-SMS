@@ -48,14 +48,14 @@ class SettingManager(object):
 
             If not setting module is passed as a parameter,
             if will look for a module name in the environnement 
-            variable 'PRAGMATIC_SMS_SETTINGS_MODULE' and try to import it.
+            variable 'PSMS_SETTINGS_MODULE' and try to import it.
 
             If the 'PYTHON_PATH' environnement variable is set, it will be
             added to the Python Path prior to this.
 
-            If 'PRAGMATIC_SMS_SETTINGS_MODULE' is a path to a '.py' file,
+            If 'PSMS_SETTINGS_MODULE' is a path to a '.py' file,
             it will attempt to add the directory containing the file 
-            in 'PYTHON_PATH' the set 'PRAGMATIC_SMS_SETTINGS_MODULE' to the
+            in 'PYTHON_PATH' the set 'PSMS_SETTINGS_MODULE' to the
             module name prior to it.
 
         """
@@ -65,7 +65,7 @@ class SettingManager(object):
         if settings_module is None:
             try:
                 
-                module_name = os.environ['PRAGMATIC_SMS_SETTINGS_MODULE']
+                module_name = os.environ['PSMS_SETTINGS_MODULE']
 
                 # not a module name but a python file, set the env variable
                 # accordingly
@@ -73,14 +73,14 @@ class SettingManager(object):
                     d = os.path.dirname(os.path.abspath(module_name))
                     os.environ['PYTHON_PATH'] = d
                     module_name = os.path.splitext(module_name)[0]
-                    os.environ['PRAGMATIC_SMS_SETTINGS_MODULE'] = module_name
+                    os.environ['PSMS_SETTINGS_MODULE'] = module_name
 
                 sys.path.insert(0, os.environ['PYTHON_PATH'])
                 settings_module = __import__(module_name)
 
             except KeyError:
                 raise SettingError('You must pass a setting module or set '\
-                                   'the "PRAGMATIC_SMS_SETTINGS_MODULE" '\
+                                   'the "PSMS_SETTINGS_MODULE" '\
                                    'environnement variable')
             except ImportError:
                 raise SettingError('Unable to import %s. Is it in the '\

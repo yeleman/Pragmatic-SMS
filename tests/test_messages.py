@@ -16,7 +16,7 @@ pragmatic_sms_dir = os.path.dirname(test_dir)
 sys.path.insert(0, test_dir)
 sys.path.insert(0, pragmatic_sms_dir)
 os.environ['PYTHON_PATH'] = test_dir
-os.environ['PRAGMATIC_SMS_SETTINGS_MODULE'] = 'dummy_settings'
+os.environ['PSMS_SETTINGS_MODULE'] = 'dummy_settings'
 
 import default_settings
 import dummy_settings

@@ -9,6 +9,7 @@
 import datetime
 import uuid
 import socket
+import logging
 
 from conf import settings
 from utils import import_class
@@ -17,7 +18,12 @@ from kombu.connection import BrokerConnection
 from kombu.messaging import Exchange, Queue, Consumer, Producer
 
 
-    
+# this module is borrowed from the Python source code itself as it's not
+# yet available in Python 2.6. Still, it won't work in Python 2.4 or less.
+from dictconfig import dictConfig
+dictConfig(settings.LOGGING)
+
+
 class SmsRouter(object):
     """
         Start and stop the message processors and the backends. Each of them
@@ -27,19 +33,29 @@ class SmsRouter(object):
 
     def __init__(self):
 
+        self.logger = logging.getLogger('psms')
+
         # setup routes
         routes = self.get_routes()
         
         self.outgoing_messages_queue = routes['queues']['outgoing_messages']
         self.incoming_messages_queue = routes['queues']['incoming_messages']
+        self.logs_queue = routes['queues']['logs']
        
-        self.exchange = routes['exchange']
+        self.messages_exchange = routes['exchanges']['messages']
+        self.logs_exchange = routes['exchanges']['logs']
         self.connection = routes['connection']
 
-        self.producer = Producer(self.connection.channel(), 
-                                 exchange=self.exchange, serializer="json")
+        self.message_producer = Producer(self.connection.channel(), 
+                                 exchange=self.messages_exchange, 
+                                 serializer="json")
 
+        self.log_producer = Producer(self.connection.channel(), 
+                                     exchange=self.logs_exchange, 
+                                     serializer="json")        
+        # flag the router as not running. call start() to run it
         self.run = False
+
 
 
     def setup_consumers(self):
@@ -47,7 +63,11 @@ class SmsRouter(object):
             Attach callbacks to incoming and outgoing message queues
         """
   
-        self.message_processors = [import_class(mp)() for mp in settings.MESSAGE_PROCESSORS]
+        mps = (import_class(mp) for mp in settings.MESSAGE_PROCESSORS)
+        self.message_processors = [mp(self) for mp in mps]
+
+        mps = (mp.rsplit('.', 1)[1] for mp in settings.MESSAGE_PROCESSORS)
+        self.logger.info('Loading message processors: %s' % ', '.join(mps))
 
         # attach callbacks for incoming messages
         self.incoming_messages_consumer = Consumer(self.connection.channel(), 
@@ -63,6 +83,12 @@ class SmsRouter(object):
             self.outgoing_messages_consumer.register_callback(mp.handle_outgoing_message)
         self.outgoing_messages_consumer.consume()
 
+        # log everything that is in the logs queue using the Python logger
+        self.logs_consumer = Consumer(self.connection.channel(), 
+                                      self.logs_queue)
+        self.logs_consumer.register_callback(self.handle_log)
+        self.logs_consumer.consume()
+
     
     def start(self, timeout=1, limit=None):
         """
@@ -74,6 +100,8 @@ class SmsRouter(object):
             number of loosp before it stop without having to tell him to.
             Limit should be an integer representing the number of loops.
         """
+
+        self.logger.info('Starting SMS router')
 
         self.setup_consumers()
         self.run = True
@@ -100,9 +128,9 @@ class SmsRouter(object):
         # todo : log the errors
 
         except self.connection.connection_errors, e:
-            print("Error while connecting with Kombu: %s" % e)
+            self.logger.error("Error while connecting with Kombu: %s" % e)
         except socket.error, e:
-            print("Socket error: %s" % e)
+            self.logger.error("Socket error: %s" % e)
         
         try:
             self.connection.release()
@@ -110,12 +138,15 @@ class SmsRouter(object):
             # todo: find why there is this assertion error about state
             pass
 
+        self.logger.info('SMS router stopped')
+
 
     def stop():
         """
             Unregister callbacks and set the running flag to False so the
             next timeout the MessageProcessor should shutdown gracefully.
         """
+        self.logger.info('Stopping SMS router')
         self.outgoing_messages_consumer.callbacks = []
         self.incoming_messages_consumer.callbacks = []
         self.run = False
@@ -128,7 +159,7 @@ class SmsRouter(object):
             message.
         """
 
-        self.producer.publish(body=message.to_dict(), 
+        self.message_producer.publish(body=message.to_dict(), 
                                routing_key="incoming_messages")    
 
 
@@ -139,7 +170,7 @@ class SmsRouter(object):
             message.
         """
 
-        self.producer.publish(body=message.to_dict(), 
+        self.message_producer.publish(body=message.to_dict(), 
                                routing_key="outgoing_messages")    
 
 
@@ -156,19 +187,49 @@ class SmsRouter(object):
                                                 **transport_options)
         # todo: use topic routing
         # http://packages.python.org/kombu/reference/kombu.entity.html?#kombu.entity.Exchange.type
-        routes['exchange'] = Exchange("sms", "direct", 
+        routes['exchanges'] = {}
+        routes['exchanges']['messages'] = Exchange("sms", "direct", 
                                     durable=settings.PERSISTENT_MESSAGE_QUEUES)
-        routes['queues'] = {}
-        routes['queues']['incoming_messages'] = Queue('incoming_messages',
-                                                    exchange=routes['exchange'],
-                                                    routing_key="incoming_messages")
-        routes['queues']['outgoing_messages'] = Queue('outgoing_messages',
-                                                    exchange=routes['exchange'],
-                                                     routing_key="outgoing_messages")
 
+        routes['exchanges']['logs'] = Exchange("logs", "direct",
+                                                   durable=False)
+
+        routes['queues'] = {}
+
+        queue = Queue('incoming_messages',
+                      exchange=routes['exchanges']['messages'],
+                      routing_key="incoming_messages")
+        routes['queues']['incoming_messages'] = queue
+
+        queue = Queue('outgoing_messages',
+                      exchange=routes['exchanges']['messages'],
+                      routing_key="outgoing_messages")
+        routes['queues']['outgoing_messages'] = queue
+
+        routes['queues']['logs'] = Queue('logs', 
+                                         exchange=routes['exchanges']['logs'] ,
+                                         routing_key="logs")
         return routes
+
+
+    def log(self, lvl, msg, *args, **kwargs):
+        """
+            Push this log message into the log queue
+        """
+        print msg
+        log = {'lvl': lvl, 'msg': msg, 'args': args, 'kwargs': kwargs}
+        self.log_producer.publish(body=log, routing_key="logs")  
             
-        
+
+    def handle_log(self, body, message):
+        """
+            React to log message in the log queue by passing it to the Python
+            logger.
+        """
+        print body
+        self.logger.log(body['lvl'], body['msg'], 
+                        *body['args'], **body['kwargs'])  
+                    
 
 class Message(object):
     """

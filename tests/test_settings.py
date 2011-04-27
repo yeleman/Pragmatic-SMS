@@ -11,7 +11,7 @@ pragmatic_sms_dir = os.path.dirname(test_dir)
 sys.path.insert(0, test_dir)
 sys.path.insert(0, pragmatic_sms_dir)
 os.environ['PYTHON_PATH'] = test_dir
-os.environ['PRAGMATIC_SMS_SETTINGS_MODULE'] = 'dummy_settings'
+os.environ['PSMS_SETTINGS_MODULE'] = 'dummy_settings'
 
 import default_settings
 import dummy_settings
@@ -25,18 +25,15 @@ class TestSettings(unittest2.TestCase):
 
     def setUp(self):
         os.environ['PYTHON_PATH'] = test_dir
-        os.environ['PRAGMATIC_SMS_SETTINGS_MODULE'] = 'dummy_settings'
+        os.environ['PSMS_SETTINGS_MODULE'] = 'dummy_settings'
 
 
 
     def test_extract_settings(self):
         
         settings = SettingManager.extract_settings(dummy_settings)
-        settings.pop('IS_TEST_SETTINGS')
-        self.assertEqual(SettingManager.extract_settings(default_settings),
-                         settings)
-        
-        
+        self.assertTrue(settings['IS_TEST_SETTINGS'])
+
 
     def dummy_settings_are_attached_as_attributes(self):
         
@@ -58,7 +55,7 @@ class TestSettings(unittest2.TestCase):
 
     def test_no_settings_module_at_all_raise_exception(self):
         
-        del os.environ['PRAGMATIC_SMS_SETTINGS_MODULE']
+        del os.environ['PSMS_SETTINGS_MODULE']
 
         with self.assertRaises(SettingError):
             SettingManager(renew=True)
@@ -82,7 +79,7 @@ class TestSettings(unittest2.TestCase):
     def test_settings_module_can_be_set_as_just_a_file(self):
 
         del os.environ['PYTHON_PATH']
-        os.environ['PRAGMATIC_SMS_SETTINGS_MODULE'] = 'dummy_settings.py'
+        os.environ['PSMS_SETTINGS_MODULE'] = 'dummy_settings.py'
         test = SettingManager(renew=True)
         self.assertTrue(test.IS_TEST_SETTINGS)
 
