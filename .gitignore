@@ -2,7 +2,7 @@
 *.sqlite
 *.db
 *.pyc
-.project
+*project
 *~
 *.gz
 *.zip
