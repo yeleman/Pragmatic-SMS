@@ -9,22 +9,20 @@ import sys
 from kombu.connection import BrokerConnection
 from kombu.messaging import Exchange, Queue
 
-test_dir = os.path.dirname(os.path.abspath(__file__))
-pragmatic_sms_dir = os.path.dirname(test_dir)
-sys.path.insert(0, test_dir)
-sys.path.insert(0, pragmatic_sms_dir)
-os.environ['PYTHON_PATH'] = test_dir
-os.environ['PSMS_SETTINGS_MODULE'] = 'dummy_settings'
-
-import default_settings
 import dummy_settings
-import processors.base
 
-from conf import SettingManager, settings
-from routing import SmsRouter, OutgoingMessage, IncomingMessage
-from utils import import_class
+
+from pragmatic_sms.settings.manager import declare_settings_module, SettingsManager
+
+test_dir = os.path.dirname(os.path.abspath(__file__))
+declare_settings_module('dummy_settings', test_dir)
+
+from pragmatic_sms.conf import settings
+from pragmatic_sms.routing import SmsRouter, OutgoingMessage, IncomingMessage
+from pragmatic_sms.utils import import_class
 from pragmatic_sms.processors.test import EchoMessageProcessor, CounterMessageProcessor
-from processors.base import MessageProcessor
+from pragmatic_sms.processors.base import MessageProcessor
+from pragmatic_sms.settings import default_settings
 
 
 
@@ -35,8 +33,8 @@ class TestRouting(unittest2.TestCase):
         os.environ['PYTHON_PATH'] = test_dir
         os.environ['PSMS_SETTINGS_MODULE'] = 'dummy_settings'
         settings._inst = None
-        SettingManager(renew=True)
-        settings.MESSAGE_PROCESSORS = ( 'processors.test.CounterMessageProcessor',)
+        SettingsManager(renew=True)
+        settings.MESSAGE_PROCESSORS = ( 'pragmatic_sms.processors.test.CounterMessageProcessor',)
         CounterMessageProcessor.reset()
         self.router = SmsRouter()
         self.router.setup_consumers()
@@ -95,7 +93,7 @@ class TestRouting(unittest2.TestCase):
 
     def test_several_message_processors(self):
 
-        settings.MESSAGE_PROCESSORS += ('processors.test.CounterMessageProcessor',)
+        settings.MESSAGE_PROCESSORS += ('pragmatic_sms.processors.test.CounterMessageProcessor',)
         router = SmsRouter()
         router.setup_consumers()
         router.dispatch_outgoing_message(OutgoingMessage('foo', 'bar'))

@@ -11,18 +11,15 @@ import datetime
 from kombu.connection import BrokerConnection
 from kombu.messaging import Exchange, Queue
 
+from pragmatic_sms.settings.manager import declare_settings_module, SettingsManager
+
 test_dir = os.path.dirname(os.path.abspath(__file__))
-pragmatic_sms_dir = os.path.dirname(test_dir)
-sys.path.insert(0, test_dir)
-sys.path.insert(0, pragmatic_sms_dir)
-os.environ['PYTHON_PATH'] = test_dir
-os.environ['PSMS_SETTINGS_MODULE'] = 'dummy_settings'
+declare_settings_module('dummy_settings', test_dir)
 
-import default_settings
-import dummy_settings
-
-from conf import SettingManager, settings
-from routing import SmsRouter, OutgoingMessage, IncomingMessage, Message
+from pragmatic_sms.settings import default_settings
+from pragmatic_sms.tests import dummy_settings
+from pragmatic_sms.conf import settings
+from pragmatic_sms.routing import SmsRouter, OutgoingMessage, IncomingMessage, Message
 
 
 class TestMessage(unittest2.TestCase):

@@ -20,7 +20,7 @@ from kombu.messaging import Exchange, Queue, Consumer, Producer
 
 # this module is borrowed from the Python source code itself as it's not
 # yet available in Python 2.6. Still, it won't work in Python 2.4 or less.
-from dictconfig import dictConfig
+from pragmatic_sms.settings.dictconfig import dictConfig
 dictConfig(settings.LOGGING)
 
 
@@ -131,6 +131,8 @@ class SmsRouter(object):
             self.logger.error("Error while connecting with Kombu: %s" % e)
         except socket.error, e:
             self.logger.error("Socket error: %s" % e)
+        except KeyboardInterrupt:
+            self.logger.info("Stopping SMS router")
         
         try:
             self.connection.release()
