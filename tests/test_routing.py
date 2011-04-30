@@ -78,7 +78,8 @@ class TestRouting(unittest2.TestCase):
 
     def test_handle_outgoing_message(self):
 
-        self.router.message_producer.publish(body={'recipient': 'foo', 'text': 'bar'}, 
+        self.router.message_producer.publish(body={'recipient': 'foo', 'text': 'bar',
+                                                  'transport': 'default'}, 
                                         routing_key="outgoing_messages")
         self.router.start(timeout=1, limit=1)
         self.assertTrue(CounterMessageProcessor.message_sent)
@@ -128,7 +129,7 @@ class TestRouting(unittest2.TestCase):
         self.assertTrue(isinstance(response, OutgoingMessage))
         self.assertEqual(response.text, 'doh')
         self.assertEqual(response.recipient, message.author)
-        self.assertEqual(response.backend, message.backend)
+        self.assertEqual(response.transport, message.transport)
         self.assertEqual(response.response_to, message)
 
 

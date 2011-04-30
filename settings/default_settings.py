@@ -10,10 +10,11 @@ import os
 PERSISTENT_MESSAGE_QUEUES = True
 
 
-# List of backend in charge of sending and receiving messages
+# List of transport in charge of sending and receiving messages
 MESSAGE_TRANSPORTS = {
     'default': {
-        'engine': 'pramatic_sms.backends.shell.ShellBackend',
+        'backend': 'pramatic_sms.transports.test.DummyMessageTransport',
+        'options': {}
     }
 }
 

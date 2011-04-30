@@ -57,7 +57,7 @@ class TestMessage(unittest2.TestCase):
         m = OutgoingMessage("to", "test")
         d = m.to_dict()
         self.assertIn("recipient", d)
-        self.assertIn("backend", d)
+        self.assertIn("transport", d)
         self.assertIn("creation_date", d)
         self.assertIn("id", d)
         self.assertIn("response_to", d)
@@ -65,7 +65,7 @@ class TestMessage(unittest2.TestCase):
         m = IncomingMessage("from", "test")
         d = m.to_dict()
         self.assertIn("author", d)
-        self.assertIn("backend", d)
+        self.assertIn("transport", d)
         self.assertIn("reception_date", d)
         self.assertIn("id", d)
 

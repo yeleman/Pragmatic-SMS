@@ -23,10 +23,13 @@ from kombu.messaging import Exchange, Queue, Consumer, Producer
 from pragmatic_sms.settings.dictconfig import dictConfig
 dictConfig(settings.LOGGING)
 
+class FatalRoutingError(Exception):
+    pass
+
 
 class SmsRouter(object):
     """
-        Start and stop the message processors and the backends. Each of them
+        Start and stop the message processors and the transports. Each of them
         are run as separate child process of the router process.
     """
 
@@ -40,7 +43,9 @@ class SmsRouter(object):
         
         self.outgoing_messages_queue = routes['queues']['outgoing_messages']
         self.incoming_messages_queue = routes['queues']['incoming_messages']
+        self.transport_messages_queues = routes['queues']['transports']
         self.logs_queue = routes['queues']['logs']
+        self.error_queues = routes['queues']['errors']
        
         self.messages_exchange = routes['exchanges']['messages']
         self.logs_exchange = routes['exchanges']['logs']
@@ -81,6 +86,7 @@ class SmsRouter(object):
                                                    self.outgoing_messages_queue)
         for mp in self.message_processors:
             self.outgoing_messages_consumer.register_callback(mp.handle_outgoing_message)
+        self.outgoing_messages_consumer.register_callback(self.relay_message_to_transport)
         self.outgoing_messages_consumer.consume()
 
         # log everything that is in the logs queue using the Python logger
@@ -89,6 +95,14 @@ class SmsRouter(object):
         self.logs_consumer.register_callback(self.handle_log)
         self.logs_consumer.consume()
 
+        # attach a fallback functions to every message non-delivery queue
+        self.errors_consumer = []
+        for name, queue in self.error_queues.iteritems():
+            consumer = Consumer(self.connection.channel(), queue)
+            self.errors_consumer.append(consumer)
+            consumer.register_callback(self.handle_missing_transport)
+            consumer.consume()
+        
     
     def start(self, timeout=1, limit=None):
         """
@@ -156,7 +170,7 @@ class SmsRouter(object):
     
     def dispatch_incoming_message(self, message):
         """
-            Add an incoming message in the queue. Transport backend use this
+            Add an incoming message in the queue. Transport transport use this
             method notify all the message processor that they received a new
             message.
         """
@@ -168,12 +182,41 @@ class SmsRouter(object):
     def dispatch_outgoing_message(self, message):
         """
             Add an outgoing message in the queue. Application use
-            this notify the proper backend that they sent a new
+            this notify the proper transport that they sent a new
             message.
         """
 
         self.message_producer.publish(body=message.to_dict(), 
                                routing_key="outgoing_messages")    
+
+
+    def relay_message_to_transport(self, body, message):
+        """
+            Take a message from the outgoing message queue and stack it
+            into the appropriate transport message queue, ready to be sent.
+
+            This is done this way to all message processors have a chance
+            to react on outgoing message but when a message is sent to a 
+            transport (which can be an outside process and we can't know 
+            when he register it's callback), it's callback is always the last
+            called on the message.
+        """
+
+        self.message_producer.publish(body=body, 
+                               routing_key="%s-send-message" % body['transport']) 
+
+
+    def handle_missing_transport(self, body, message):
+        """
+            Called when a message is delivered to a transport exchange but
+            no queue match the routing key. This generally happens
+            when no transport is declared in the settings witht his name.
+        """
+
+        print body
+        raise FatalRoutingError("No transport ready to send this message. "\
+                                "Check that settings.MESSAGE_TRANSPORTS "\
+                                "declare a transport named '%s'" % body['transport'])
 
 
     def get_routes(self):
@@ -196,8 +239,12 @@ class SmsRouter(object):
         routes['exchanges']['logs'] = Exchange("logs", "direct",
                                                    durable=False)
 
+        routes['exchanges']['transports'] = Exchange("transport", "direct", 
+                                    durable=settings.PERSISTENT_MESSAGE_QUEUES)
+
         routes['queues'] = {}
 
+        # one queue for message going in, one for message going out
         queue = Queue('incoming_messages',
                       exchange=routes['exchanges']['messages'],
                       routing_key="incoming_messages")
@@ -208,9 +255,31 @@ class SmsRouter(object):
                       routing_key="outgoing_messages")
         routes['queues']['outgoing_messages'] = queue
 
+        # todo: normalize transport names
+
+        # one queue for all logs to centralize them
         routes['queues']['logs'] = Queue('logs', 
                                          exchange=routes['exchanges']['logs'] ,
                                          routing_key="logs")
+
+        # message forwarded directly to message transorts
+        # one queue for each transport
+        routes['queues']['transports'] = {}
+        for transport in settings.MESSAGE_TRANSPORTS:
+            queue =  Queue('logs', 
+                            exchange=routes['exchanges']['transports'] ,
+                            routing_key="%s-send-message" % transport)
+            routes['queues']['transports'][transport] = queue
+
+        # queues where message are stacked when the router didn't deliver
+        # one exchange can't deliver a message
+        routes['queues']['errors'] = {}
+        queue = Queue('ae.undeliver', 
+                      exchange=routes['exchanges']['transports'] ,
+                      routing_key="ae.undeliver")
+        routes['queues']['errors']['no-transport'] = queue
+
+
         return routes
 
 
@@ -256,9 +325,9 @@ class Message(object):
     router = SmsRouter()
 
 
-    def __init__(self, text, backend='default', id=None):
+    def __init__(self, text, transport='default', id=None):
         self.text = text
-        self.backend = backend
+        self.transport = transport
         self.id = id or str(uuid.uuid4())
 
 
@@ -286,12 +355,12 @@ class Message(object):
 
 class OutgoingMessage(Message):
     """
-        Message to be sent by a backend.
+        Message to be sent by a transport.
     """
 
-    def __init__(self, recipient, text, backend='default', creation_date=None,
+    def __init__(self, recipient, text, transport='default', creation_date=None,
                  id=None, response_to=None):
-        Message.__init__(self, text, backend, id)
+        Message.__init__(self, text, transport, id)
 
         # accept None, and IncomingMessage object or a
         # serialized IncomingMessage object as parameter
@@ -320,7 +389,7 @@ class OutgoingMessage(Message):
         """
         response_to = self.response_to.to_dict() if self.response_to else self.response_to
         return {'recipient': self.recipient, 'text': self.text, 
-                'backend': self.backend, 'id': self.id, 
+                'transport': self.transport, 'id': self.id, 
                 'response_to': response_to,
                 'creation_date': self.serialize_date(self.creation_date)}
 
@@ -337,7 +406,7 @@ class OutgoingMessage(Message):
     
 
     def __repr__(self):
-        return u"<OutgoingMessage %(id)s via %(backend)s>" % self.__dict__
+        return u"<OutgoingMessage %(id)s via %(transport)s>" % self.__dict__
 
 
 
@@ -346,9 +415,9 @@ class IncomingMessage(Message):
         Received message, waiting to be processed.
     """
     
-    def __init__(self, author, text, backend='default', reception_date=None,
+    def __init__(self, author, text, transport='default', reception_date=None,
                  id=None):
-        Message.__init__(self, text, backend, id)
+        Message.__init__(self, text, transport, id)
         
         self.author = author
 
@@ -368,18 +437,18 @@ class IncomingMessage(Message):
             Turn this object into a dict that is easy to serialize into JSON
         """
         return {'author': self.author, 
-                'text': self.text, 'backend': self.backend, 'id': self.id,
+                'text': self.text, 'transport': self.transport, 'id': self.id,
                 'reception_date': self.serialize_date(self.reception_date)}
 
 
     def create_response(self, text):
         """
-            Create an OutgoingMessage with 'text' as a content for the same backend
+            Create an OutgoingMessage with 'text' as a content for the same transport
             and the author as a recipient thent stack it in the outgoing
             message queue. Set the 'response_to' to the current message id
         """
         return OutgoingMessage(recipient=self.author,
-                               text=text, backend=self.backend, 
+                               text=text, transport=self.transport, 
                                response_to=self)
 
 
@@ -405,6 +474,6 @@ class IncomingMessage(Message):
     
 
     def __repr__(self):
-        return u"<IncomingMessage %(id)s via %(backend)s>" % self.__dict__
+        return u"<IncomingMessage %(id)s via %(transport)s>" % self.__dict__
 
 

@@ -27,9 +27,11 @@ class MessageProcessor(object):
 
                 def on_send_message(self, message):
                     # do something with a message ready to be sent
+                    # message will be an OutgoingMessage object
 
                 def on_receive_message(self, message):
                     # do something with a message just arriving
+                    # message will be an IncomingMessage object
 
         Then in your settings file:
 
@@ -112,15 +114,15 @@ class MessageProcessor(object):
     # todo: add the 'origin' of the message as the piece of code that produced 
     # the message
 
-    # todo: make a with Message.recipient / backend context manager to send 
-    # several message to the same recipient / backend in a raw
-    def send(recipient, text, backend="default"):
+    # todo: make a with Message.recipient / transport context manager to send 
+    # several message to the same recipient / transport in a raw
+    def send(recipient, text, transport="default"):
         """
             Create a Message object with the following attributes and send it.
 
             Return the Message object
         """
-        message = OutgoingMessage(recipient, text, backend=backend)
+        message = OutgoingMessage(recipient, text, transport=transport)
         message.send()
         return message
 
