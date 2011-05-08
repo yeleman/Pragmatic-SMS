@@ -7,7 +7,7 @@
 """
 
 from pragmatic_sms.processors.base import MessageProcessor
-from pragmatic_sms.routing import OutgoingMessage, IncomingMessage
+from pragmatic_sms.messages import OutgoingMessage, IncomingMessage
 
 import logging
 

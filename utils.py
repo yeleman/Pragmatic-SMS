@@ -10,12 +10,11 @@
 import os
 
 
-
-
 def import_class(class_path):
     """
         Import a class dynamically, given it's dotted path.
     """
+
     module_name, class_name = class_path.rsplit('.', 1)
     try:
         return getattr(__import__(module_name, fromlist=[class_name]), class_name)

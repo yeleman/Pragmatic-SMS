@@ -13,17 +13,22 @@ PERSISTENT_MESSAGE_QUEUES = True
 # List of transport in charge of sending and receiving messages
 MESSAGE_TRANSPORTS = {
     'default': {
-        'backend': 'pramatic_sms.transports.test.DummyMessageTransport',
+        'backend': 'pragmatic_sms.transports.test.DummyMessageTransport',
         'options': {}
     }
 }
+
 
 # Check http://packages.python.org/kombu/reference/kombu.connection.html
 # for a list of all the available message broker
 # 'memory' is requires no setup and fits well for dev while 'rabbitmq' is
 # a very robust production set up
-MESSAGE_BROKER = {'transport': 'memory',
-                  'options': {} }
+MESSAGE_BROKER = {'transport': "sqlakombu.transport.Transport",
+                  'options': {
+                       "hostname":"sqlite:///%s" % os.path.join(tempfile.gettempdir(), 
+                                                                'psms.db')
+                   } 
+                  }
 
 
 # list of object that will react when a message is received or going to be send
@@ -64,7 +69,9 @@ LOGGING = {
             'level':'DEBUG',
             'class':'logging.handlers.RotatingFileHandler',
             'formatter': 'verbose',
-            'filename': os.path.join(tempfile.gettempdir(), 'psms_router.log'),
+            'filename': os.path.join(tempfile.gettempdir(), 
+                                     'pragmatic_sms', 
+                                     'activity.log'),
             'maxBytes': 2000000,
             'backupCount': 1
         },

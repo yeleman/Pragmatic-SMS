@@ -19,7 +19,8 @@ declare_settings_module('dummy_settings', test_dir)
 from pragmatic_sms.settings import default_settings
 from pragmatic_sms.tests import dummy_settings
 from pragmatic_sms.conf import settings
-from pragmatic_sms.routing import SmsRouter, OutgoingMessage, IncomingMessage, Message
+from pragmatic_sms.routing import SmsRouter
+from pragmatic_sms.messages import OutgoingMessage, IncomingMessage, Message
 
 
 class TestMessage(unittest2.TestCase):

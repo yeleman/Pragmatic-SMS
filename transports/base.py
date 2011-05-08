@@ -9,10 +9,16 @@
 
 import tempfile
 import os
+import logging
+import socket
+
+from kombu.messaging import Queue, Consumer
 
 from daemon import runner
 
-from pragmatic_sms.routing import SmsRouter, OutgoingMessage
+from pragmatic_sms.routing import SmsRouter
+from pragmatic_sms.messages import OutgoingMessage
+
 
 
 class MessageTransport(object):
@@ -36,12 +42,12 @@ class MessageTransport(object):
 
 
             from pramatic_sms.transports.base import MessageTransport
-            from pragmatic_sms.routing import OutgoingMessage
+            from pragmatic_sms.messages import OutgoingMessage
 
             YourMessageTansport(MessageTransport):
 
                 def __init__(self, name, purpose, arg1, arg2):
-                    MessageTransport.__init__(name, purpose)
+                    MessageTransport.__init__(self, name, purpose)
                     self.arg1 = arg1
                     self.arg2 = arg2
 
@@ -95,26 +101,34 @@ class MessageTransport(object):
         and incoming messages processing, you can check the self.purpose
         variable. It can be either 'send_messages' or 'receive_messages'.
 
-        
+        When you'll need to debug your backend, you will not find informations
+        in the pragmatic_sms logs because these are logs that the program does
+        when it at least started correctly. You must check for the usual 
+        stderr, which is redirected in into a file. The file path is built
+        this way:
 
+        sterr_path = os.path.join(tempfile.gettempdir(), 
+                                        'pragmatic_sms',
+                                        'transports',
+                                        transport_name, 
+                                        '%s_stderr' % self.purpose)
 
-
+        For example : /tmp/pragmatic_sms/transports/default/receive_messages_stderr
     """
 
     pidfile_timeout = 1
 
 
-    def __init(self, name, purpose):
+    def __init__(self, name, purpose, *args, **kwargs):
 
         self.name = name
         self.process_dir = os.path.join(tempfile.gettempdir(), 
-                                        'pragmatic_sms',
-                                        name)
+                                        'pragmatic_sms', 'transports', name)
 
         assert purpose in ('send_messages', 'receive_messages')
 
         try:
-            os.mkdir(process_dir)
+            os.makedirs(self.process_dir)
         except OSError:
             pass
 
@@ -123,7 +137,15 @@ class MessageTransport(object):
         self.setup_process_file()
 
         self.router = SmsRouter()
-        
+
+
+    # todo: provide self.info, self.debug, etc Male a virtual class Loggagble
+    def log(self, *args, **kwargs):
+        """
+            Proxy method to log using the router log so we can centralize logs
+            files easily.
+        """
+        self.router.logger.log(*args, **kwargs)
 
         
     def start_incoming_messages_loop(self):
@@ -163,14 +185,68 @@ class MessageTransport(object):
             Override this method if you wish to change the behavior of 
             OutgoingMessage Processing in your backend.
 
-            If you don't override this method, the current loop register
-            the on_send_message() method as a callback for the OutgoingMessage
-            queue then start the to listen for activity on it.
+            If you don't override this method, the current behavior is to
+            create a queue listing for messages in the message exchange
+            with the routing key matching 'transportname_outoing_message'.
+            It then create a consumer for this queue and 
+            registers the on_send_message() method as a callback for it
+            to finally start listening for messages.
 
             Typical use is to avoid overriding this method and prefer
             to override on_send_message().
         """
-        pass
+                
+        self.log(logging.INFO, 'Starting transport "%s"' % self.name)
+        #print 'Starting transport "%s"' % self.name
+
+        name = '%s_incoming_messages' % self.name
+        self.connection = self.router.connection
+
+        self.queue = Queue(name,
+                      exchange=self.router.messages_exchange,
+                      routing_key=name)
+
+        self.consumer = Consumer(self.connection.channel(), self.queue)
+        self.consumer.register_callback(self.handle_outgoing_message)
+        self.consumer.consume()
+          
+        try:  
+            while True:    
+                try:
+                    self.connection.drain_events(timeout=1)
+                except socket.timeout: 
+                    # this happens when timout is reach and no message is
+                    # in the queue
+                    pass
+
+        # todo : log the errors
+
+        except self.connection.connection_errors, e:
+            self.log("Error while connecting with Kombu: %s" % e)
+        except socket.error, e:
+            self.log("Socket error: %s" % e)
+        except (KeyboardInterrupt, SystemExit) as e:
+            self.log('Stopping transport "%s"' % self.name)
+        
+        try:
+            self.connection.release()
+        except AssertionError:
+            # todo: find why there is this assertion error about state
+            pass
+
+
+        #print ('Transport "%s" stopped' % self.name)
+        self.log(logging.INFO, 'Transport "%s" stopped' % self.name)
+
+
+    def handle_outgoing_message(self, body, message):
+        """
+            Default callback to the OutgoingMessage queue. This callback take
+            a JSON message from the queue, turn it into an OutgoingMessage
+            object then pass it to on_send_message().
+        """
+
+        self.on_send_message(OutgoingMessage(**body))
 
 
     # todo: provide a way to tell a message has been sent
@@ -198,10 +274,10 @@ class MessageTransport(object):
             File descriptors and pid files will be different, according to the
             self.purpose variable, so set up them accordingly.
         """
-        self.stdout_path = os.path.join(process_dir, '%s_stdout' % self.purpose)
-        self.stdin_path = os.path.join(process_dir, '%s_stdin' % self.purpose)
-        self.stderr_path = os.path.join(process_dir, '%s_stderr' % self.purpose)
-        self.pidfile_path =  os.path.join(process_dir, '%s.pid' % self.purpose)
+        self.stdout_path = os.path.join(self.process_dir, '%s_stdout' % self.purpose)
+        self.stdin_path = os.path.join(self.process_dir, '%s_stdin' % self.purpose)
+        self.stderr_path = os.path.join(self.process_dir, '%s_stderr' % self.purpose)
+        self.pidfile_path =  os.path.join(self.process_dir, '%s.pid' % self.purpose)
 
         open(self.stdout_path, 'a').close()
         open(self.stdin_path , 'a').close()
@@ -213,24 +289,16 @@ class MessageTransport(object):
             This is choosen by setting the self.purpose attribute.
 
             "send_message" will start listing for message to send by 
-            running start_outgoing_messages_loop(self) 
+            running start_outgoing_messages_loop() 
 
             "receive_message" will start listing for message to receive by 
-            running start_incoming_messages_loop(self) 
+            running start_incoming_messages_loop() 
         """
+
         if self.purpose == "send_messages":
             self.start_outgoing_messages_loop()
-        if self.purpose == "receive_messages"
+        if self.purpose == "receive_messages":
             self.start_incoming_messages_loop()
 
         
-
-
-try:
-    runner.DaemonRunner(Process()).do_action()
-except runner.DaemonRunnerStopFailureError as e:
-    # ignore the error if it's about a messing PID file lock
-    # it just mean the process finished before 
-    if 'PID' in str(e): 
-        raise
 

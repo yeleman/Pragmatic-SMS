@@ -9,7 +9,7 @@
 """
 
 from pragmatic_sms.processors.base import MessageProcessor
-from pragmatic_sms.routing import OutgoingMessage, IncomingMessage
+from pragmatic_sms.messages import OutgoingMessage, IncomingMessage
 
 
 class EchoMessageProcessor(MessageProcessor):
@@ -33,10 +33,19 @@ class CounterMessageProcessor(MessageProcessor):
     message_received = 0
     message_sent = 0
 
+    def __init__(self, *args, **kwargs):
+        """
+            Reset the counter at each router restart
+        """
+        self.reset()
+        MessageProcessor.__init__(self, *args, **kwargs)
+
+
     def on_receive_message(self, message):
         if isinstance(message, IncomingMessage):
             from pragmatic_sms.processors.test import CounterMessageProcessor
             CounterMessageProcessor.message_received += 1
+
 
     def on_send_message(self, message):
         if isinstance(message, OutgoingMessage):

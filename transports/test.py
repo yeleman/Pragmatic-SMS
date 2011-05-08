@@ -9,7 +9,19 @@
 
 from base import MessageTransport
 
+# todo : provide method stop_in/out_messsage loop
 
 class DummyMessageTransport(MessageTransport):
 
-    pass
+    
+        def __init__(self, name, purpose, activity='foo'):
+            MessageTransport.__init__(self, name, purpose)
+            self.activity = activity
+
+        def start_incoming_messages_loop(self):
+
+            while True:
+                print "Doing '%s'" % self.activity
+
+        def on_send_message(self, message):
+            print "Sending %s" % message

@@ -9,16 +9,12 @@ import os
 IS_TEST_SETTINGS = True
 
 
-# if False, message will be deleted when the router shut down or crash
-# if true, they will be saved when queued and retrieved on router starts up
-PERSISTENT_MESSAGE_QUEUES = True
-
 
 # List of transport in charge of sending and receiving messages
 MESSAGE_TRANSPORTS = {
     'default': {
-        'backend': 'pramatic_sms.transports.test.DummyMessageTransport',
-        'options': {}
+        'backend': 'pragmatic_sms.transports.test.DummyMessageTransport',
+        'options': {'activity': 'foo'}
     }
 }
 
@@ -26,8 +22,7 @@ MESSAGE_TRANSPORTS = {
 # for a list of all the available message broker
 # 'memory' is requires no setup and fits well for dev while 'rabbitmq' is
 # a very robust production set up
-MESSAGE_BROKER = {'transport': 'memory',
-                  'options': {} }
+
 
 
 # list of object that will react when a message is received or going to be send
@@ -57,14 +52,16 @@ LOGGING = {
             'level':'DEBUG',
             'class':'logging.handlers.RotatingFileHandler',
             'formatter': 'verbose',
-            'filename': os.path.join(tempfile.gettempdir(), 'psms_router.log'),
+            'filename': os.path.join(tempfile.gettempdir(), 
+                                     'pragmatic_sms', 
+                                     'activity.log'),
             'maxBytes': 2000000,
             'backupCount': 1
         },
     },
     'loggers': {
         'psms': {
-            'handlers':['file'],
+            'handlers':['console', 'file'],
             'propagate': True,
             'level':'INFO',
         },

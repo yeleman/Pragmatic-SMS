@@ -9,7 +9,8 @@
 
 import socket
 
-from pragmatic_sms.routing import SmsRouter, IncomingMessage, OutgoingMessage
+from pragmatic_sms.routing import SmsRouter
+from pragmatic_sms.messages import IncomingMessage, OutgoingMessage
 from pragmatic_sms.conf import settings
 
 

@@ -19,11 +19,13 @@ from pragmatic_sms.utils import import_class
 
 
 
-def start_message_transport(action, name, purpose):
+def start_message_transport(args):
     """
         Import the message transport class, instanciate it and turn in into
         a daemon or stop / reload it according to action.
     """
+
+    action, name, purpose = args.action, args.name, args.purpose
 
     try:
         from pragmatic_sms.conf import settings
@@ -38,39 +40,41 @@ def start_message_transport(action, name, purpose):
         sys.exit(1)
 
     try:
-        module = import_class(settings.MESSAGE_TRANSPORTS[name])
+        transport = settings.MESSAGE_TRANSPORTS[name]
+        module = import_class(transport['backend'])
     except KeyError:
         sys.stderr.write("Unable find message transport named '%s'."\
                         " Check your settings.MESSAGE_TRANSPORTS list.\n" % name)
         sys.exit(1)
 
     try:
-        runner.DaemonRunner(module(name, purpose)).do_action()
+        runner.DaemonRunner(module(name, purpose, **transport['options'])).do_action()
     except runner.DaemonRunnerStopFailureError as e:
         # ignore the error if it's about a messing PID file lock
         # it just mean the process finished before 
-        if 'PID' in str(e): 
+        if 'PID' not in str(e): 
             raise
+        sys.stderr.write("Transport '%s' is not running\n" % name)
      
 
 parser = argparse.ArgumentParser(description='Start|stop|reload pragmatic sms message transport')
 
 
-router.add_argument('-s', '--settings', default='settings', type=str,
+parser.add_argument('-s', '--settings', default='settings', type=str,
                              help="Specified in which module to look for settings",
                              )
-router.add_argument("-p", "--python-path", dest="python_path", 
+parser.add_argument("-p", "--python-path", dest="python_path", 
                     default='.', type=str, 
                     help="Add the following directory to the python path")
 
-router.add_argument("action", help="start|stop|reload")
+parser.add_argument("action", help="start|stop|reload")
 
-router.add_argument("name",  help="The name of the transport backend to start")
+parser.add_argument("name",  help="The name of the transport backend to start")
 
-router.add_argument("purpose", 
+parser.add_argument("purpose", 
                     help="Wether to start the backend to send or receive message")
 
-router.set_defaults(func=start_router)
+parser.set_defaults(func=start_message_transport)
 
 args = parser.parse_args()
 
