@@ -7,10 +7,11 @@
 """
 
 
-import tempfile
 import os
+import sys
 import logging
 import socket
+import subprocess
 
 from kombu.messaging import Queue, Consumer
 
@@ -18,8 +19,12 @@ from daemon import runner
 
 from pragmatic_sms.routing import SmsRouter
 from pragmatic_sms.messages import OutgoingMessage
+from pragmatic_sms.conf import settings
+
+# todo : provide method stop_in/out_messsage loop
 
 
+# todo: provide purge for message transports
 
 class MessageTransport(object):
     """
@@ -55,14 +60,15 @@ class MessageTransport(object):
                     
                     sms = self.get_sms_from_your_super_transport()
                     while sms:
-                        OutgoingMessage(author=sms.phone_number, 
-                                        text=sms.content,
-                                        transport=self.name).dispatch()
+                        IncomingMessage(author=sms.phone_number, 
+                                         text=sms.content,
+                                         transport=self.name).dispatch()
                         sms = self.get_sms_from_your_super_transport()
 
                 def on_send_message(self, message):
                     self.send_sms_with_your_backend(message.recipient, 
                                                     message.text)
+                    return True
 
         Then in your settings file:
 
@@ -116,14 +122,15 @@ class MessageTransport(object):
         For example : /tmp/pragmatic_sms/transports/default/receive_messages_stderr
     """
 
+    RUNNER_SCRIPT = os.path.join(settings.PSMS_DIR, 'transports', 'runner.py')
+
     pidfile_timeout = 1
 
 
     def __init__(self, name, purpose, *args, **kwargs):
 
         self.name = name
-        self.process_dir = os.path.join(tempfile.gettempdir(), 
-                                        'pragmatic_sms', 'transports', name)
+        self.process_dir = os.path.join(settings.TEMP_DIR, 'transports', name)
 
         assert purpose in ('send_messages', 'receive_messages')
 
@@ -160,7 +167,7 @@ class MessageTransport(object):
 
                 sms = self.get_sms_from_your_super_transport()
                 while sms:
-                    OutgoingMessage(author=sms.phone_number, 
+                    IncomingMessage(author=sms.phone_number, 
                                     text=sms.content,
                                     transport=self.name).dispatch()
                     sms = self.get_sms_from_your_super_transport()
@@ -180,7 +187,7 @@ class MessageTransport(object):
         pass
 
 
-    def start_outgoing_messages_loop(self):
+    def start_outgoing_messages_loop(self, timeout=1, limit=None):
         """
             Override this method if you wish to change the behavior of 
             OutgoingMessage Processing in your backend.
@@ -195,29 +202,42 @@ class MessageTransport(object):
             Typical use is to avoid overriding this method and prefer
             to override on_send_message().
         """
-                
+           
         self.log(logging.INFO, 'Starting transport "%s"' % self.name)
-        #print 'Starting transport "%s"' % self.name
 
-        name = '%s_incoming_messages' % self.name
+        self.router.connect()
+        self.router.bind_routes()
+        self.router.setup_consumers()
+
+        name = '%s_send_message' % self.name
         self.connection = self.router.connection
 
         self.queue = Queue(name,
                       exchange=self.router.messages_exchange,
                       routing_key=name)
 
-        self.consumer = Consumer(self.connection.channel(), self.queue)
+        self.consumer = Consumer(self.router.channel, self.queue)
         self.consumer.register_callback(self.handle_outgoing_message)
         self.consumer.consume()
-          
-        try:  
-            while True:    
-                try:
-                    self.connection.drain_events(timeout=1)
-                except socket.timeout: 
-                    # this happens when timout is reach and no message is
-                    # in the queue
-                    pass
+
+        try:
+            if limit: # this part is run only for testing
+                assert limit > 0
+                while self.run and limit > 0:
+                    try:
+                        self.connection.drain_events(timeout=timeout)
+                    except socket.timeout: 
+                        # this happens when timout is reach and no message is
+                        limit -= 1
+
+            else:
+                while self.run:
+                    try:
+                        self.connection.drain_events(timeout=timeout)
+                    except socket.timeout: 
+                        # this happens when timout is reach and no message is
+                        # in the queue
+                        pass
 
         # todo : log the errors
 
@@ -245,8 +265,8 @@ class MessageTransport(object):
             a JSON message from the queue, turn it into an OutgoingMessage
             object then pass it to on_send_message().
         """
-
-        self.on_send_message(OutgoingMessage(**body))
+        if self.on_send_message(OutgoingMessage(**body)):
+            message.ack()
 
 
     # todo: provide a way to tell a message has been sent
@@ -265,6 +285,9 @@ class MessageTransport(object):
 
             If you don't override this method nor start_outgoing_message_loop(),
             there is little chance any message is going to be sent.
+
+            Return True is the message has been sent. If you don't, the message
+            will be kept in the queue of message to be sent.
         """
         pass
 
@@ -300,5 +323,90 @@ class MessageTransport(object):
         if self.purpose == "receive_messages":
             self.start_incoming_messages_loop()
 
-        
 
+    def manage_message_transport(self, action, purpose):
+        """
+            Call the transport runner with the current transport as
+            name argument, the current settings module as settings argument,
+            and the action and purpose from this method arguments.
+        """
+
+        subprocess.call([sys.executable,
+                         self.RUNNER_SCRIPT,
+                         action,
+                         self.name,
+                         purpose,
+                         '-p %s' % os.environ['PYTHON_PATH'],
+                         '-s %s' % os.environ['PSMS_SETTINGS_MODULE']])            
+
+
+    def start_receiving_messages_daemon(self):
+        """
+            Call manage_message_transport() with action as start, and 
+            purpose as receive_messages
+        """
+        self.manage_message_transport('start', 'receive_messages')
+
+
+    def start_sending_messages_daemon(self):
+        """
+            Call manage_message_transport() with action as start, and 
+            purpose as send_messages
+        """
+        self.manage_message_transport('start', 'send_messages')
+
+
+    def start_daemons(self):
+        """
+            Start all daemons for this transport
+        """
+        self.start_receiving_messages_daemon()
+        self.start_sending_messages_daemon()
+
+
+    def stop_receiving_messages_daemon(self):
+        """
+            Call manage_message_transport() with action as stop, and 
+            purpose as receive_messages
+        """
+        self.manage_message_transport('stop', 'receive_messages')
+
+
+    def stop_sending_messages_daemon(self):
+        """
+            Call manage_message_transport() with action as stop, and 
+            purpose as send_messages
+        """
+        self.manage_message_transport('stop', 'send_messages')
+
+
+    def stop_daemons(self):
+        """
+            Stop all daemons for this transport
+        """
+        self.stop_receiving_messages_daemon()
+        self.stop_sending_messages_daemon()
+
+
+    def restart_receiving_messages_daemon(self):
+        """
+            Call manage_message_transport() with action as restart, and 
+            purpose as receive_messages
+        """
+        self.manage_message_transport('restart', 'receive_messages')
+
+
+    def restart_sending_messages_daemon(self):
+        """
+            Call manage_message_transport() with action as restart, and 
+            purpose as send_messages
+        """
+        self.manage_message_transport('restart', 'send_messages')
+
+
+    def restart_daemons(self):
+        """
+            Restart all daemons for this transport
+        """
+        self.restart_receiving_messages_daemon()
+        self.restart_sending_messages_daemon()        

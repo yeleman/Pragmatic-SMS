@@ -69,6 +69,7 @@ class SettingsManager(object):
 
         # load user settings
         if settings_module is None:
+
             try:
                 module_name = os.environ['PSMS_SETTINGS_MODULE']
 
@@ -80,7 +81,7 @@ class SettingsManager(object):
                     module_name = os.path.splitext(os.path.basename(module_name))[0]
                     os.environ['PSMS_SETTINGS_MODULE'] = module_name
 
-                sys.path.insert(0, os.environ['PYTHON_PATH'])
+                sys.path.insert(0, os.environ.get('PYTHON_PATH', '.'))
                 settings_module = __import__(module_name)
 
             except KeyError:

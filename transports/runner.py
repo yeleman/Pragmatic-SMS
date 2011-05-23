@@ -78,8 +78,8 @@ parser.set_defaults(func=start_message_transport)
 
 args = parser.parse_args()
 
-os.environ['PYTHON_PATH'] = args.python_path
-os.environ['PSMS_SETTINGS_MODULE'] = args.settings
+os.environ['PYTHON_PATH'] = args.python_path.strip()
+os.environ['PSMS_SETTINGS_MODULE'] = args.settings.strip()
 
 args.func(args)
 

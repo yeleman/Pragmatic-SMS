@@ -5,6 +5,11 @@
 import tempfile
 import os
 
+
+TEMP_DIR = os.path.join(tempfile.gettempdir(), 'pragmatic_sms')
+PSMS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 # if False, message will be deleted when the router shut down or crash
 # if true, they will be saved when queued and retrieved on router starts up
 PERSISTENT_MESSAGE_QUEUES = True
@@ -25,10 +30,10 @@ MESSAGE_TRANSPORTS = {
 # a very robust production set up
 MESSAGE_BROKER = {'transport': "sqlakombu.transport.Transport",
                   'options': {
-                       "hostname":"sqlite:///%s" % os.path.join(tempfile.gettempdir(), 
+                       "hostname":"sqlite:///%s" % os.path.join(TEMP_DIR, 
                                                                 'psms.db')
                    } 
-                  }
+}
 
 
 # list of object that will react when a message is received or going to be send
@@ -69,9 +74,7 @@ LOGGING = {
             'level':'DEBUG',
             'class':'logging.handlers.RotatingFileHandler',
             'formatter': 'verbose',
-            'filename': os.path.join(tempfile.gettempdir(), 
-                                     'pragmatic_sms', 
-                                     'activity.log'),
+            'filename': os.path.join(TEMP_DIR, 'activity.log'),
             'maxBytes': 2000000,
             'backupCount': 1
         },

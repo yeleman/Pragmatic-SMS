@@ -8,6 +8,7 @@
 
 import socket
 import logging
+import time
 
 from conf import settings
 from utils import import_class
@@ -33,6 +34,8 @@ class SmsRouter(object):
         Start and stop the message processors and the transports. Each of them
         are run as separate child process of the router process.
     """
+
+    no_transports = False
 
 
     def __init__(self):
@@ -67,21 +70,32 @@ class SmsRouter(object):
         self.run = False
 
 
-    def start(self, timeout=1, limit=None):
+    def start(self, timeout=1, limit=None, no_transports=None):
         """
             Start listining for messages in queues. If self.run is set
             to False and drain_events reach a timeouts, the MessageProcessor
             stop automatically. Overwise, it starts a new loop.
 
             Use 'limit' for tests when you want to run the router a given
-            number of loosp before it stop without having to tell him to.
+            number of loops before it stop without having to tell him to.
             Limit should be an integer representing the number of loops.
+            This is mainly used for testing purpose.
+
+            Use 'no_transport' when you want to run the router without it to
+            start the message transport deamons. This is mainly used for testing
+            purpose.
         """
 
+        if no_transports is not None:
+            self.no_transports = no_transports 
+            
         self.logger.info('Starting SMS router')
 
         self.bind_routes()
         self.setup_consumers()
+        if not self.no_transports:
+            self.start_transports_daemons()
+            time.sleep(1)
         self.run = True
 
         if not settings.PERSISTENT_MESSAGE_QUEUES:
@@ -120,6 +134,11 @@ class SmsRouter(object):
         except AssertionError:
             # todo: find why there is this assertion error about state
             pass
+
+        self.logger.info('Stopping transports daemons')    
+
+        if not self.no_transports:
+            self.stop_transports_daemons()
 
         self.logger.info('SMS router stopped')
 
@@ -310,8 +329,28 @@ class SmsRouter(object):
             raise FatalRoutingError('You cannot call purge on before binding '\
                                     'queues. Either start the router or call '\
                                     'bind_routes()')
+
+
+    def start_transports_daemons(self):
+        """
+            Start the transports daemons as separate processes
+        """
+        self.transports = {}
+        for name, transport in settings.MESSAGE_TRANSPORTS.items():
+            klass = import_class(transport['backend'])
+            self.transports[name] = klass(name, 'send_messages',
+                                           **transport['options'])
+            self.transports[name].start_daemons()
+
+
+    def stop_transports_daemons(self):
+        """
+            Stop the transports daemons as separate processes.
+        """
+        for name, transport in self.transports.items():
+            transport.stop_daemons()
+
         
-    
     def dispatch_incoming_message(self, message):
         """
             Add an incoming message in the queue. Transport transport use this
@@ -329,9 +368,8 @@ class SmsRouter(object):
             this notify the proper transport that they sent a new
             message.
         """
-
         self.message_producer.publish(body=message.to_dict(), 
-                               routing_key="outgoing_messages")    
+                                      routing_key="outgoing_messages")    
 
 
     def relay_message_to_transport(self, body, message):
@@ -346,8 +384,8 @@ class SmsRouter(object):
             called on the message.
         """
 
-        self.message_producer.publish(body=body, 
-                               routing_key="%s-send-message" % body['transport']) 
+        queue_name = "%s_send_message" % body['transport']
+        self.message_producer.publish(body=body, routing_key=queue_name) 
 
 
     def handle_missing_transport(self, body, message):
@@ -356,8 +394,8 @@ class SmsRouter(object):
             no queue match the routing key. This generally happens
             when no transport is declared in the settings witht his name.
         """
-        return
-        raise FatalRoutingError("No transport ready to send this message. "\
+        if not self.no_transports:
+            raise FatalRoutingError("No transport ready to send this message. "\
                                 "Check that settings.MESSAGE_TRANSPORTS "\
                                 "declare a transport named '%s' and that it "\
                                 "listens for outgoing messages." % body['transport'])

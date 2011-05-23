@@ -6,8 +6,11 @@ import tempfile
 import os
 
 
-IS_TEST_SETTINGS = True
+TEMP_DIR = os.path.join(tempfile.gettempdir(), 'pragmatic_sms')
+PSMS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+
+IS_TEST_SETTINGS = True
 
 
 # List of transport in charge of sending and receiving messages
@@ -18,11 +21,13 @@ MESSAGE_TRANSPORTS = {
     }
 }
 
-# Check http://packages.python.org/kombu/reference/kombu.connection.html
-# for a list of all the available message broker
-# 'memory' is requires no setup and fits well for dev while 'rabbitmq' is
-# a very robust production set up
+SQLITE_DB = os.path.join(TEMP_DIR, 'test.db')
 
+MESSAGE_BROKER = {'transport': "sqlakombu.transport.Transport",
+                  'options': {
+                       "hostname":"sqlite:///%s" % SQLITE_DB
+                   } 
+}
 
 
 # list of object that will react when a message is received or going to be send
@@ -52,9 +57,7 @@ LOGGING = {
             'level':'DEBUG',
             'class':'logging.handlers.RotatingFileHandler',
             'formatter': 'verbose',
-            'filename': os.path.join(tempfile.gettempdir(), 
-                                     'pragmatic_sms', 
-                                     'activity.log'),
+            'filename': os.path.join(TEMP_DIR, 'activity.log'),
             'maxBytes': 2000000,
             'backupCount': 1
         },

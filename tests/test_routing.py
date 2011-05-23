@@ -9,13 +9,9 @@ import sys
 from kombu.connection import BrokerConnection
 from kombu.messaging import Exchange, Queue
 
-import dummy_settings
-
-
 from pragmatic_sms.settings.manager import declare_settings_module, SettingsManager
 
-test_dir = os.path.dirname(os.path.abspath(__file__))
-declare_settings_module('dummy_settings', test_dir)
+declare_settings_module('pragmatic_sms.tests.dummy_settings')
 
 from pragmatic_sms.conf import settings
 from pragmatic_sms.routing import SmsRouter
@@ -31,8 +27,7 @@ class TestRouting(unittest2.TestCase):
 
 
     def setUp(self):
-        os.environ['PYTHON_PATH'] = test_dir
-        os.environ['PSMS_SETTINGS_MODULE'] = 'dummy_settings'
+        declare_settings_module('pragmatic_sms.tests.dummy_settings')
         settings._inst = None
         SettingsManager(renew=True)
         settings.MESSAGE_PROCESSORS = ( 'pragmatic_sms.processors.test.CounterMessageProcessor',)
@@ -81,7 +76,7 @@ class TestRouting(unittest2.TestCase):
         self.router.message_producer.publish(body={'author': 'foo', 
                                                    'text': 'bar'}, 
                                routing_key="incoming_messages")
-        self.router.start(timeout=1, limit=1)
+        self.router.start(timeout=1, limit=1, no_transports=True)
         self.assertTrue(CounterMessageProcessor.message_received)
 
 
@@ -89,7 +84,7 @@ class TestRouting(unittest2.TestCase):
 
         self.router.dispatch_incoming_message(IncomingMessage('foo', 
                                              'test_dispatch_incoming_message'))
-        self.router.start(timeout=1, limit=1)
+        self.router.start(timeout=1, limit=1, no_transports=True)
         self.assertTrue(CounterMessageProcessor.message_received)
 
 
@@ -99,7 +94,7 @@ class TestRouting(unittest2.TestCase):
                                         'text': 'test_handle_outgoing_message',
                                                   'transport': 'default'}, 
                                         routing_key="outgoing_messages")
-        self.router.start(timeout=1, limit=1)
+        self.router.start(timeout=1, limit=1, no_transports=True)
         self.assertTrue(CounterMessageProcessor.message_sent)
 
 
@@ -107,7 +102,7 @@ class TestRouting(unittest2.TestCase):
 
         self.router.dispatch_outgoing_message(OutgoingMessage('foo', 
                                               'test_dispatch_outgoing_message'))
-        self.router.start(timeout=1, limit=1)
+        self.router.start(timeout=1, limit=1, no_transports=True)
         self.assertTrue(CounterMessageProcessor.message_sent)
 
 
@@ -120,7 +115,7 @@ class TestRouting(unittest2.TestCase):
                                          'test_several_message_processors out'))
         self.router.dispatch_incoming_message(IncomingMessage('foo', 
                                          'test_several_message_processors in'))
-        self.router.start(timeout=1, limit=1)
+        self.router.start(timeout=1, limit=1, no_transports=True)
         self.assertEqual(CounterMessageProcessor.message_sent, 2)
         self.assertEqual(CounterMessageProcessor.message_received, 2)
 
@@ -128,32 +123,32 @@ class TestRouting(unittest2.TestCase):
     def test_message_send_method(self):
         message = OutgoingMessage('foo', 'test_message_send_method')
         message.send()
-        self.router.start(timeout=1, limit=1)
+        self.router.start(timeout=1, limit=1, no_transports=True)
         self.assertEqual(CounterMessageProcessor.message_sent, 1)
 
 
-    def test_message_send_method_a_second_tim(self):
+    def test_message_send_method_a_second_time(self):
         """
             Test send method right after the first test to check against 
             a duplicate message sending.
         """
         message = OutgoingMessage('foo', 'test_message_send_method 2')
         message.send()
-        self.router.start(timeout=1, limit=1)
+        self.router.start(timeout=1, limit=1, no_transports=True)
         self.assertEqual(CounterMessageProcessor.message_sent, 1)
 
 
     def test_message_dispatch_method(self):
         message = IncomingMessage('foo', 'test_message_dispatch_method')
         message.dispatch()
-        self.router.start(timeout=1, limit=1)
+        self.router.start(timeout=1, limit=1, no_transports=True)
         self.assertEqual(CounterMessageProcessor.message_received, 1)
 
 
     def test_message_respond_method(self):
         message = IncomingMessage('foo', 'test_message_respond_method in')
         response = message.respond('test_message_respond_method respond')
-        self.router.start(timeout=1, limit=1)
+        self.router.start(timeout=1, limit=1, no_transports=True)
         self.assertEqual(CounterMessageProcessor.message_sent, 1)
         self.assertTrue(isinstance(response, OutgoingMessage))
         self.assertEqual(response.text, 'test_message_respond_method respond')

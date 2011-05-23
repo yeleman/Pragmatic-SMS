@@ -8,8 +8,8 @@
 """
 
 from base import MessageTransport
+from pragmatic_sms.messages import OutgoingMessage
 
-# todo : provide method stop_in/out_messsage loop
 
 class DummyMessageTransport(MessageTransport):
 
@@ -25,3 +25,34 @@ class DummyMessageTransport(MessageTransport):
 
         def on_send_message(self, message):
             print "Sending %s" % message
+            return True
+
+
+class CounterMessageTransport(MessageTransport):
+    """
+        Increment a global counter for each message sent
+    """
+     
+    message_sent = 0
+
+    def __init__(self, *args, **kwargs):
+        """
+            Reset the counter at each router restart
+        """
+        self.reset()
+        MessageTransport.__init__(self, *args, **kwargs)
+
+
+    def on_send_message(self, message):
+        if isinstance(message, OutgoingMessage):
+            from pragmatic_sms.transports.test import CounterMessageTransport
+            CounterMessageTransport.message_sent += 1
+        return True
+        
+
+    @classmethod
+    def reset(cls):
+        """
+            Reset counters to 0
+        """
+        CounterMessageTransport.message_sent = 0

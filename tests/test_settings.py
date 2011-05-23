@@ -50,7 +50,6 @@ class TestSettings(unittest2.TestCase):
         self.assertTrue(settings.IS_TEST_SETTINGS)
 
 
-
     def test_no_settings_module_at_all_raise_exception(self):
         
         del os.environ['PSMS_SETTINGS_MODULE']
@@ -77,7 +76,8 @@ class TestSettings(unittest2.TestCase):
     def test_settings_module_can_be_set_as_just_a_file(self):
 
         del os.environ['PYTHON_PATH']
-        os.environ['PSMS_SETTINGS_MODULE'] = 'dummy_settings.py'
+        os.environ['PSMS_SETTINGS_MODULE'] = os.path.join(test_dir, 
+                                                          'dummy_settings.py')
         test = SettingsManager(renew=True)
         self.assertTrue(test.IS_TEST_SETTINGS)
 
