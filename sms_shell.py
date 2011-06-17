@@ -18,8 +18,6 @@ class SmsShell(Cmd):
     """
     
     
-    
-    
     @staticmethod
     def get_terminal_size():
         """

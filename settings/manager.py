@@ -138,7 +138,7 @@ def declare_settings_module(settings_module='settings', python_path="."):
     """
 
     os.environ['PSMS_SETTINGS_MODULE'] = settings_module
-    os.environ['PYTHON_PATH'] = python_path
+    os.environ['PYTHON_PATH'] = os.path.abspath(python_path)
 
 
 

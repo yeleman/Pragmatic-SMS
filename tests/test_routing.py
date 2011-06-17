@@ -15,12 +15,11 @@ declare_settings_module('pragmatic_sms.tests.dummy_settings')
 
 from pragmatic_sms.conf import settings
 from pragmatic_sms.routing import SmsRouter
-from pragmatic_sms.messages import OutgoingMessage, IncomingMessage, Message
+from pragmatic_sms.messages import OutgoingMessage, IncomingMessage, Message, MessageWorker
 from pragmatic_sms.utils import import_class
 from pragmatic_sms.processors.test import EchoMessageProcessor, CounterMessageProcessor
 from pragmatic_sms.processors.base import MessageProcessor
 from pragmatic_sms.settings import default_settings
-
 
 
 class TestRouting(unittest2.TestCase):
@@ -32,8 +31,10 @@ class TestRouting(unittest2.TestCase):
         SettingsManager(renew=True)
         settings.MESSAGE_PROCESSORS = ( 'pragmatic_sms.processors.test.CounterMessageProcessor',)
         CounterMessageProcessor.reset()
-        self.router = SmsRouter()
-        self.router.setup_consumers()
+        self.router = SmsRouter(no_transports=True)
+        self.router.connect()
+        self.message_worker = MessageWorker()
+        self.message_worker.connect()
 
 
     def tearDown(self):
@@ -46,9 +47,10 @@ class TestRouting(unittest2.TestCase):
         # you can't bind_routes if you are not connected and some test stop
         # routers which trigger disconnection
         self.router.connect()
-        # you can't call purge without routes being bound to a channel 
-        self.router.bind_routes()
         self.router.purge()
+
+        self.message_worker.connect()
+        self.message_worker.purge()
 
 
     def test_import_class(self):
@@ -63,46 +65,46 @@ class TestRouting(unittest2.TestCase):
 
 
     def test_routes_init(self):
-        routes = self.router.get_routes()
-        self.assertTrue(isinstance(routes['exchanges']['messages'], Exchange))
-        self.assertTrue(isinstance(routes['exchanges']['logs'], Exchange))
-        self.assertTrue(isinstance(routes['queues']['incoming_messages'], Queue))
-        self.assertTrue(isinstance(routes['queues']['outgoing_messages'], Queue))
-        self.assertTrue(isinstance(routes['queues']['logs'], Queue))
+        exchanges = self.router.exchanges
+        queues = self.router.queues
+        self.assertTrue(isinstance(exchanges['psms'], Exchange))
+        self.assertTrue(isinstance(queues['incoming_messages'], Queue))
+        self.assertTrue(isinstance(queues['outgoing_messages'], Queue))
+        self.assertTrue(isinstance(queues['logs'], Queue))
 
 
     def test_handle_incoming_message(self):
 
-        self.router.message_producer.publish(body={'author': 'foo', 
-                                                   'text': 'bar'}, 
+        self.router.producers['psms'].publish(body={'author': 'foo', 
+                                                   'text': 'test_handle_incoming_message'}, 
                                routing_key="incoming_messages")
-        self.router.start(timeout=1, limit=1, no_transports=True)
+        self.router.start(timeout=1, limit=1)
         self.assertTrue(CounterMessageProcessor.message_received)
 
 
     def test_dispatch_incoming_message(self):
 
-        self.router.dispatch_incoming_message(IncomingMessage('foo', 
+        self.message_worker.dispatch_incoming_message(IncomingMessage('foo', 
                                              'test_dispatch_incoming_message'))
-        self.router.start(timeout=1, limit=1, no_transports=True)
+        self.router.start(timeout=1, limit=1)
         self.assertTrue(CounterMessageProcessor.message_received)
 
 
     def test_handle_outgoing_message(self):
 
-        self.router.message_producer.publish(body={'recipient': 'foo', 
+        self.router.producers['psms'].publish(body={'recipient': 'foo', 
                                         'text': 'test_handle_outgoing_message',
                                                   'transport': 'default'}, 
                                         routing_key="outgoing_messages")
-        self.router.start(timeout=1, limit=1, no_transports=True)
+        self.router.start(timeout=1, limit=1)
         self.assertTrue(CounterMessageProcessor.message_sent)
 
 
     def test_dispatch_outgoing_message(self):
 
-        self.router.dispatch_outgoing_message(OutgoingMessage('foo', 
+        self.message_worker.dispatch_outgoing_message(OutgoingMessage('foo', 
                                               'test_dispatch_outgoing_message'))
-        self.router.start(timeout=1, limit=1, no_transports=True)
+        self.router.start(timeout=1, limit=1)
         self.assertTrue(CounterMessageProcessor.message_sent)
 
 
@@ -110,12 +112,12 @@ class TestRouting(unittest2.TestCase):
 
         settings.MESSAGE_PROCESSORS += ('pragmatic_sms.processors.test.CounterMessageProcessor',)
         self.router = SmsRouter()
-        self.router.setup_consumers()
-        self.router.dispatch_outgoing_message(OutgoingMessage('foo', 
+        self.router.connect()
+        self.message_worker.dispatch_outgoing_message(OutgoingMessage('foo', 
                                          'test_several_message_processors out'))
-        self.router.dispatch_incoming_message(IncomingMessage('foo', 
+        self.message_worker.dispatch_incoming_message(IncomingMessage('foo', 
                                          'test_several_message_processors in'))
-        self.router.start(timeout=1, limit=1, no_transports=True)
+        self.router.start(timeout=1, limit=1)
         self.assertEqual(CounterMessageProcessor.message_sent, 2)
         self.assertEqual(CounterMessageProcessor.message_received, 2)
 
@@ -123,7 +125,7 @@ class TestRouting(unittest2.TestCase):
     def test_message_send_method(self):
         message = OutgoingMessage('foo', 'test_message_send_method')
         message.send()
-        self.router.start(timeout=1, limit=1, no_transports=True)
+        self.router.start(timeout=1, limit=1)
         self.assertEqual(CounterMessageProcessor.message_sent, 1)
 
 
@@ -134,21 +136,21 @@ class TestRouting(unittest2.TestCase):
         """
         message = OutgoingMessage('foo', 'test_message_send_method 2')
         message.send()
-        self.router.start(timeout=1, limit=1, no_transports=True)
+        self.router.start(timeout=1, limit=1)
         self.assertEqual(CounterMessageProcessor.message_sent, 1)
 
 
     def test_message_dispatch_method(self):
         message = IncomingMessage('foo', 'test_message_dispatch_method')
         message.dispatch()
-        self.router.start(timeout=1, limit=1, no_transports=True)
+        self.router.start(timeout=1, limit=1)
         self.assertEqual(CounterMessageProcessor.message_received, 1)
 
 
     def test_message_respond_method(self):
         message = IncomingMessage('foo', 'test_message_respond_method in')
         response = message.respond('test_message_respond_method respond')
-        self.router.start(timeout=1, limit=1, no_transports=True)
+        self.router.start(timeout=1, limit=1)
         self.assertEqual(CounterMessageProcessor.message_sent, 1)
         self.assertTrue(isinstance(response, OutgoingMessage))
         self.assertEqual(response.text, 'test_message_respond_method respond')

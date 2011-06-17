@@ -10,8 +10,59 @@
 import datetime
 import uuid
 
+from kombu.messaging import Queue
 
-from routing import SmsRouter
+from workers import PSMSWorker
+
+
+class MessageWorker(PSMSWorker):
+    """
+        This is a fake worker, as it will never perform any main loop.
+
+        It just reuse the worker setup to be able to send a message
+        on the message queues.
+    """
+
+    name = 'message worker'
+
+
+    def dispatch_incoming_message(self, message):
+        """
+            Add an incoming message in the queue. Transport transport use this
+            method notify all the message processor that they received a new
+            message.
+        """
+
+        self.producers['psms'].publish(body=message.to_dict(), 
+                                      routing_key="incoming_messages")   
+
+
+    def dispatch_outgoing_message(self, message):
+        """
+            Add an outgoing message in the queue. Application use
+            this notify the proper transport that they sent a new
+            message.
+        """
+        self.producers['psms'].publish(body=message.to_dict(), 
+                                      routing_key="outgoing_messages")     
+
+
+    def get_queues(self):
+        """
+            One queue for incomming messages, one queue for outgoing messages.
+        """
+
+        queues = {}
+
+        queues['incoming_messages'] = Queue('incoming_messages',
+                                            exchange=self.exchanges['psms'],
+                                            routing_key="incoming_messages",
+                                            durable=self.persistent)
+        queues['outgoing_messages'] = Queue('outgoing_messages',
+                                            exchange=self.exchanges['psms'],
+                                            routing_key="outgoing_messages",
+                                            durable=self.persistent)
+        return queues
 
 
 class Message(object):
@@ -21,8 +72,7 @@ class Message(object):
 
         All messages have a unique identifier. This is prefered to using
         the date and author of the message because it removes the hassle
-        of taking care of the time zone and settling of the event defining
-        the timestamp.
+        of taking care of the time zone.
         
         Equality is defined according to this id so it is discouraged to 
         modify the message in place as different message could result in
@@ -34,7 +84,9 @@ class Message(object):
     # todo: message are immutable ?
 
     DATE_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
-    router = SmsRouter()
+    
+    worker = MessageWorker()
+    worker.connect()
 
 
     def __init__(self, text, transport='default', id=None):
@@ -77,6 +129,7 @@ class OutgoingMessage(Message):
         # accept None, and IncomingMessage object or a
         # serialized IncomingMessage object as parameter
         self.recipient = recipient
+
         if response_to:
             try:
                 self.response_to = IncomingMessage(**response_to)
@@ -110,7 +163,7 @@ class OutgoingMessage(Message):
         """
             Stack the message in the outgoing message queue.
         """
-        self.router.dispatch_outgoing_message(self)
+        self.worker.dispatch_outgoing_message(self)
 
     
     def __unicode__(self):
@@ -141,7 +194,6 @@ class IncomingMessage(Message):
                 self.reception_date = self.reception_date
         else:
             self.reception_date = datetime.datetime.now()
-
 
 
     def to_dict(self):
@@ -178,7 +230,7 @@ class IncomingMessage(Message):
         """
             Stack the message in the incoming message queue.
         """
-        self.router.dispatch_incoming_message(self)
+        self.worker.dispatch_incoming_message(self)
 
 
     def __unicode__(self):

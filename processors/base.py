@@ -9,9 +9,9 @@
 
 import socket
 
-from pragmatic_sms.routing import SmsRouter
 from pragmatic_sms.messages import IncomingMessage, OutgoingMessage
 from pragmatic_sms.conf import settings
+from pragmatic_sms.workers import PSMSWorker
 
 
 
@@ -44,8 +44,8 @@ class MessageProcessor(object):
         automatically.
     """
 
-    def __init__(self, router):
-        self.router = router
+    worker = PSMSWorker()
+    worker.connect()
 
 
     # todo: implement on return so we can handle message you can't deliver

@@ -14,19 +14,25 @@ import socket
 import subprocess
 
 from kombu.messaging import Queue, Consumer
+from kombu.exceptions import NotBoundError
 
 from daemon import runner
 
-from pragmatic_sms.routing import SmsRouter
+from pragmatic_sms.routing import SmsRouter, RoutingError
 from pragmatic_sms.messages import OutgoingMessage
 from pragmatic_sms.conf import settings
+from pragmatic_sms.workers import PSMSWorker
 
 # todo : provide method stop_in/out_messsage loop
 
 
 # todo: provide purge for message transports
 
-class MessageTransport(object):
+class MessageTransportError(RoutingError):
+    pass
+
+
+class MessageTransport(PSMSWorker):
     """
         Inherit from this class if you wish to create your own message
         transport. This class is not meant to be instanciated directly.
@@ -127,9 +133,12 @@ class MessageTransport(object):
     pidfile_timeout = 1
 
 
-    def __init__(self, name, purpose, *args, **kwargs):
+    def __init__(self, name, purpose='send_messages', *args, **kwargs):
 
         self.name = name
+
+        PSMSWorker.__init__(self)
+        
         self.process_dir = os.path.join(settings.TEMP_DIR, 'transports', name)
 
         assert purpose in ('send_messages', 'receive_messages')
@@ -141,18 +150,7 @@ class MessageTransport(object):
 
         self.purpose = purpose
 
-        self.setup_process_file()
-
-        self.router = SmsRouter()
-
-
-    # todo: provide self.info, self.debug, etc Male a virtual class Loggagble
-    def log(self, *args, **kwargs):
-        """
-            Proxy method to log using the router log so we can centralize logs
-            files easily.
-        """
-        self.router.logger.log(*args, **kwargs)
+        self._setup_process_fd()
 
         
     def start_incoming_messages_loop(self):
@@ -184,79 +182,40 @@ class MessageTransport(object):
             don't, the SmsRouter will simply not receive IncomingMessage 
             from your backend but won't complain.
         """
-        pass
+        self.log(logging.INFO, 
+                 'Transport "%s" starts listening for incoming messages' % self.name)
+        self.log(logging.INFO, 
+                 'Transport "%s" stops listening for incoming messages' % self.name)
 
 
-    def start_outgoing_messages_loop(self, timeout=1, limit=None):
+    def start_outgoing_messages_loop(self, *args, **kwargs):
         """
-            Override this method if you wish to change the behavior of 
-            OutgoingMessage Processing in your backend.
-
-            If you don't override this method, the current behavior is to
-            create a queue listing for messages in the message exchange
-            with the routing key matching 'transportname_outoing_message'.
-            It then create a consumer for this queue and 
-            registers the on_send_message() method as a callback for it
-            to finally start listening for messages.
-
-            Typical use is to avoid overriding this method and prefer
-            to override on_send_message().
+            You usually don't want to override this method, as it just 
+            calls the standard worker behavior for the main loop.
         """
-           
-        self.log(logging.INFO, 'Starting transport "%s"' % self.name)
-
-        self.router.connect()
-        self.router.bind_routes()
-        self.router.setup_consumers()
-
-        name = '%s_send_message' % self.name
-        self.connection = self.router.connection
-
-        self.queue = Queue(name,
-                      exchange=self.router.messages_exchange,
-                      routing_key=name)
-
-        self.consumer = Consumer(self.router.channel, self.queue)
-        self.consumer.register_callback(self.handle_outgoing_message)
-        self.consumer.consume()
-
-        try:
-            if limit: # this part is run only for testing
-                assert limit > 0
-                while self.run and limit > 0:
-                    try:
-                        self.connection.drain_events(timeout=timeout)
-                    except socket.timeout: 
-                        # this happens when timout is reach and no message is
-                        limit -= 1
-
-            else:
-                while self.run:
-                    try:
-                        self.connection.drain_events(timeout=timeout)
-                    except socket.timeout: 
-                        # this happens when timout is reach and no message is
-                        # in the queue
-                        pass
-
-        # todo : log the errors
-
-        except self.connection.connection_errors, e:
-            self.log("Error while connecting with Kombu: %s" % e)
-        except socket.error, e:
-            self.log("Socket error: %s" % e)
-        except (KeyboardInterrupt, SystemExit) as e:
-            self.log('Stopping transport "%s"' % self.name)
-        
-        try:
-            self.connection.release()
-        except AssertionError:
-            # todo: find why there is this assertion error about state
-            pass
+        return self.start(*args, **kwargs)
 
 
-        #print ('Transport "%s" stopped' % self.name)
-        self.log(logging.INFO, 'Transport "%s" stopped' % self.name)
+    def get_queues(self):
+        """
+            We need only one queue for outgoing message
+        """
+        queues = PSMSWorker.get_queues(self)
+        name = "%s_transport" % self.name
+        queues[name] = Queue(name, exchange=self.exchanges['psms'],
+                               routing_key=name)
+        return queues
+
+
+    def get_consumers(self):
+        """
+            Only one consumer for the only transport queue
+        """
+        name = "%s_transport" % self.name
+        consumer = Consumer(self.channel, self.queues[name])
+        consumer.register_callback(self.handle_outgoing_message)
+        consumer.consume()
+        return {name: consumer}
 
 
     def handle_outgoing_message(self, body, message):
@@ -275,27 +234,28 @@ class MessageTransport(object):
 
     def on_send_message(self, message):
         """
-            Override this method if you didn't override 
-            start_outgoing_messages_loop() and wish to react everytime a
+            Override this method to react everytime a
             new outgoing message arrives.
 
             Typical use is to just call whatever method of your backend
             really send a message here, so it is called everytime a message
             should be sent.
 
-            If you don't override this method nor start_outgoing_message_loop(),
+            If you don't override this method,,
             there is little chance any message is going to be sent.
 
             Return True is the message has been sent. If you don't, the message
-            will be kept in the queue of message to be sent.
+            will be kept in the queue of messages to be sent.
         """
         pass
 
 
-    def setup_process_file(self):
+    def _setup_process_fd(self):
         """
+            Implementation details for daemonizeation.
+
             File descriptors and pid files will be different, according to the
-            self.purpose variable, so set up them accordingly.
+            self.purpose variable, so setting up them accordingly.
         """
         self.stdout_path = os.path.join(self.process_dir, '%s_stdout' % self.purpose)
         self.stdin_path = os.path.join(self.process_dir, '%s_stdin' % self.purpose)
@@ -316,6 +276,9 @@ class MessageTransport(object):
 
             "receive_message" will start listing for message to receive by 
             running start_incoming_messages_loop() 
+
+            This is an legacy of the way the Python daemon lib
+            is implemented, requiring this method to exists.
         """
 
         if self.purpose == "send_messages":

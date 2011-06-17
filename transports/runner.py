@@ -18,12 +18,12 @@ from daemon import runner
 from pragmatic_sms.utils import import_class
 
 
-
 def start_message_transport(args):
     """
         Import the message transport class, instanciate it and turn in into
         a daemon or stop / reload it according to action.
     """
+
 
     action, name, purpose = args.action, args.name, args.purpose
 
@@ -82,12 +82,4 @@ os.environ['PYTHON_PATH'] = args.python_path.strip()
 os.environ['PSMS_SETTINGS_MODULE'] = args.settings.strip()
 
 args.func(args)
-
-
-
-
-
-
-
-
 

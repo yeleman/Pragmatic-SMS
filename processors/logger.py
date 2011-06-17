@@ -17,7 +17,7 @@ class LoggerMessageProcessor(MessageProcessor):
     """
 
     def on_receive_message(self, message):
-        self.router.log(logging.INFO, unicode(message))
+        self.worker.log(logging.INFO, unicode(message))
 
     def on_send_message(self, message):
-        self.router.log(logging.INFO, unicode(message))
+        self.worker.log(logging.INFO, unicode(message))
