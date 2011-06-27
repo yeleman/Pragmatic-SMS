@@ -105,7 +105,6 @@ class Worker(object):
             This is mainly used for testing purpose and is default to -1,
             which is no limit.
         """
-        assert limit > 0
 
         self.run = True
 
